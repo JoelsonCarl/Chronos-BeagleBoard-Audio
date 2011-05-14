@@ -1,0 +1,47 @@
+###########################################################
+###                                                     ###
+### Chronos Controlled Audio Effects on the BeagleBoard ###
+###                                                     ###
+###########################################################
+
+**************************
+*** Project Repository ***
+**************************
+To have write access to the git repository, contact the repository owner on GitHub.
+Read+Write Access: git@github.com:JoelsonCarl/Chronos-BeagleBoard-Audio.git
+Read+Write Access: https://JoelsonCarl@github.com/JoelsonCarl/Chronos-BeagleBoard-Audio.git
+Read Only Access: git://github.com/JoelsonCarl/Chronos-BeagleBoard-Audio.git
+
+
+***********************
+*** Project Website ***
+***********************
+Information about the project is being maintained at:
+  http://elinux.org/ECE497_Project:_Chronos_Controlled_Audio_Effects
+
+There may be additional information at the project website not found in this README.
+
+
+***************************
+*** Chronos Watch Files ***
+***************************
+The repository includes the files
+  - chronosbutton.c
+  - chronosbutton.py
+
+The .py file is a python script example that was found at:
+  http://chemicaloliver.net/programming/receiving-ti-ez430-chronos-button-presses-in-processing-and-python/
+
+I took the Python script and converted it to run in C.
+
+
+*****************************
+*** Chronos Watch Drivers ***
+*****************************
+In order to use the RF access point with the BeagleBoard, it was necessary to make
+sure that the following options/modules were set to a "Y" in the Linux kernel config:
+  - USB Modem (CDC ACM) Support
+  - USB Serial Converter Support
+    - USB TI 3410/5052 Serial Driver
+An example kernel that should work on the BeagleBoard with the Chronos watch
+is in the repository (uImage-chronos)
