@@ -22,6 +22,17 @@ Information about the project is being maintained at:
 There may be additional information at the project website not found in this README.
 
 
+*******************************
+*** Building and Installing ***
+*******************************
+You should be able to compile the program by running the 'make' command.
+Before running make, there are three variables in the Makefile that will
+need to be set correctly for your machine:
+  - ARM_TOOLCHAIN_PATH
+  - DSPLIBC64P_INSTALL_DIR
+  - C6RUN_TOOLCHAIN_PATH
+
+
 ***************************
 *** Chronos Watch Files ***
 ***************************
