@@ -25,12 +25,9 @@ There may be additional information at the project website not found in this REA
 *******************************
 *** Building and Installing ***
 *******************************
-You should be able to compile the program by running the 'make' command.
-Before running make, there are three variables in the Makefile that will
-need to be set correctly for your machine:
-  - ARM_TOOLCHAIN_PATH
-  - DSPLIBC64P_INSTALL_DIR
-  - C6RUN_TOOLCHAIN_PATH
+Before running the 'make' command, you will probably have to modify the
+makefile_profile.mak file.  Ideally you will only have to modify the CC_ROOT
+variable.
 
 
 ***************************
