@@ -7,23 +7,7 @@
 #include <unistd.h>
 
 /* Local includes */
-#include "debug.h"
-
-/* Defines */
-#define NUM_MODES 3
-//Return values for decodeData()
-#define M1          0
-#define M2          1
-#define S1          2
-#define ACC_VALID   3
-#define ACC_INVALID 4
-#define UNKNOWN     5
-
-/* Function prototypes */
-void signal_handler(int signal);
-int decodeData(unsigned char *data);
-int playAudio(int mode);
-int killAudio(void);
+#include "chronos.h"
 
 /*********************************************
  * Define commands for access point
@@ -78,23 +62,19 @@ int quit = 0;
  * start of program
  **********************************************/
 int main(int argc, char *argv[]) {
-    /* Various variables that will be used */
-    int status = EXIT_SUCCESS;
-    int bytesRead = 0;
-    int tempRead = 0;
-    int ser;
-    unsigned char *data = (unsigned char *)malloc(7*sizeof(unsigned char));
+    /* Array for storing data from serial port */
+    unsigned char data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     /* Set the signal callback for Ctrl-C */
     signal(SIGINT, signal_handler);
     DBG("Ctrl-C handler set.\n");
 
     /* Open file descriptor to serial port */
+    int ser;
     ser = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_NDELAY);
     if (ser == -1) {
         ERR("Failed to open /dev/ttyACM0\n");
-        status = EXIT_FAILURE;
-        goto cleanup;
+        cleanup(ser, EXIT_FAILURE);
     }
     /* Setup serial port to be non-blocking, raw data, 115200 baud */
     fcntl(ser, F_SETFL, FNDELAY);
@@ -108,29 +88,14 @@ int main(int argc, char *argv[]) {
     DBG("Serial port opened and configured\n");
 
     /* Start the AP */
-    if (write(ser, CMD_StartAP, sizeof(CMD_StartAP)) < 0) {
-        ERR("Failed to write CMD_StartAP to serial port\n");
-        status = EXIT_FAILURE;
-        goto cleanup;
-    }
+    writeSerial(ser, CMD_StartAP, sizeof(CMD_StartAP));
     /* Verify the response is correct */
-    while (bytesRead < sizeof(CMD_StartAPResp)) {
-        tempRead = read(ser, data+bytesRead, sizeof(CMD_StartAPResp));
-        if (tempRead != -1) {
-            bytesRead += tempRead;
-        }
-        if (quit) {
-            goto cleanup;
-        }
-    }
-    bytesRead = 0;
+    readSerial(ser, sizeof(CMD_StartAPResp), data);
     if (!(data[0] == CMD_StartAPResp[0] &&
           data[1] == CMD_StartAPResp[1] &&
           data[2] == CMD_StartAPResp[2])) {
-        ERR("Incorrect response after starting AP\n\tdata[0] = %x\n\tdata[1] = %x\n\tdata[2] = %x\n",
-            data[0], data[1], data[2]);
-        status = EXIT_FAILURE;
-        goto cleanup;
+        ERR("Incorrect response after starting AP\n\tdata[0] = %x\n\tdata[1] = %x\n\tdata[2] = %x\n", data[0], data[1], data[2]);
+        cleanup(ser, EXIT_FAILURE);
     }
     DBG("Access Point started\n");
 
@@ -147,25 +112,11 @@ int main(int argc, char *argv[]) {
         sleep(1);
         DBG(" 1 second\n");
         /* Send data request */
-        if (write(ser, CMD_RequestData, sizeof(CMD_RequestData)) < 0) {
-            ERR("Failed to write CMD_RequestData to serial port\n");
-            status = EXIT_FAILURE;
-            goto cleanup;
-        }
+        writeSerial(ser, CMD_RequestData, sizeof(CMD_RequestData));
         /* Read response */
-        while (bytesRead < sizeof(CMD_RequestDataResp)) {
-            tempRead = read(ser, data+bytesRead, 1);
-            if (tempRead != -1) {
-                bytesRead += tempRead;
-            }
-            if (quit) {
-                goto cleanup;
-            }
-        }
-        bytesRead = 0;
+        readSerial(ser, sizeof(CMD_RequestDataResp), data);
         /* Determine Response */
         decode = decodeData(data);
-
         if (decode == M1) {
             /* M1 (top left) button pressed */
             mode += 1;
@@ -176,14 +127,12 @@ int main(int argc, char *argv[]) {
                 sysRet = killAudio();
                 if (sysRet == -1) {
                     ERR("Failed to stop audio while switching modes.\n\tmode = %d\n", mode);
-                    status = EXIT_FAILURE;
-                    goto cleanup;
+                    cleanup(ser, EXIT_FAILURE);
                 }
                 sysRet = playAudio(mode);
                 if (sysRet == -1) {
                     ERR("Failed to start audio (mode switch)\n\tmode = %d\n", mode);
-                    status = EXIT_FAILURE;
-                    goto cleanup;
+                    cleanup(ser, EXIT_FAILURE);
                 }
 
             }
@@ -199,8 +148,7 @@ int main(int argc, char *argv[]) {
                 sysRet = playAudio(mode);
                 if (sysRet == -1) {
                     ERR("Failed to Start Audio\n\tmode = %d\n", mode);
-                    status = EXIT_FAILURE;
-                    goto cleanup;
+                    cleanup(ser, EXIT_FAILURE);
                 }
                 printf("Audio Started\n");
                 playing = 1;
@@ -209,8 +157,7 @@ int main(int argc, char *argv[]) {
                 sysRet = killAudio();
                 if (sysRet == -1) {
                     ERR("Failed to Stop Audio\n\tmode = %d\n", mode);
-                    status = EXIT_FAILURE;
-                    goto cleanup;
+                    cleanup(ser, EXIT_FAILURE);
                 }
                 printf("Audio Stopped\n");
                 playing = 0;
@@ -218,7 +165,7 @@ int main(int argc, char *argv[]) {
         }
         else if (decode == ACC_INVALID) {
             /* Invalid Accelerometer Data */
-            DBG("Invalid Accelerometer Data\n\tdata[4] = %x\n\tdata[5] = %x\n\tdata[6] = %x\n", data[4], data[5], data[6]);
+            DBG("Invalid Accelerometer Data\n");
         }
         else if (decode == ACC_VALID) {
             /* Valid Accelerometer Data */
@@ -233,22 +180,9 @@ int main(int argc, char *argv[]) {
         }        
     }
 
- cleanup:
-    /* Stop the AP */
-    if (write(ser, CMD_StopAP, sizeof(CMD_StopAP)) < 0) {
-        ERR("Failed to write CMD_StopAP to serial port\n");
-        status = EXIT_FAILURE;
-    }
-    DBG("AP Stopped\n");
-    close(ser);
-    DBG("Serial port closed\n");
-    if (status == EXIT_FAILURE) {
-        printf("Program exited with FAILURE\n");
-    }
-    else if (status == EXIT_SUCCESS) {
-        printf("Program exited with SUCCESS\n");
-    }
-    exit(status);
+    /* Ctrl-C pressed -> quit with success */
+    cleanup(ser, EXIT_SUCCESS);
+    return 0;
 }
 
 
@@ -264,8 +198,6 @@ int main(int argc, char *argv[]) {
  *      an int representing what happened
  **********************************************/
 int decodeData(unsigned char *data) {
-    //DBG("data\n\tdata[0] = %x\n\tdata[1] = %x\n\tdata[2] = %x\n\tdata[3] = %x\n\tdata[4] = %x\n\tdata[5] = %x\n\tdata[6] = %x\n",
-        data[0],data[1],data[2], data[3], data[4], data[5], data[6]);
     if (data[0] == CMD_RequestDataResp[0] &&
         data[1] == CMD_RequestDataResp[1] &&
         data[2] == CMD_RequestDataResp[2] &&
@@ -307,6 +239,85 @@ int decodeData(unsigned char *data) {
     }
     else {
         return UNKNOWN;
+    }
+}
+
+
+/**********************************************
+ * cleanup
+ *  Cleans up and exits the program
+ *
+ *  Arguments
+ *      ser - file descriptor of serial port
+ *      status - program exit status
+ *
+ *  Returns
+ *      exits the program
+ **********************************************/
+void cleanup(int ser, int status) {
+    /* Stop the AP */
+    if (write(ser, CMD_StopAP, sizeof(CMD_StopAP)) < 0) {
+        ERR("Failed to write CMD_StopAP to serial port\n");
+        status = EXIT_FAILURE;
+    }
+    DBG("AP Stopped\n");
+    /* Close the serial port */
+    close(ser);
+    DBG("Serial port closed\n");
+    /* Exit the program */
+    if (status == EXIT_FAILURE) {
+        printf("Program exited with FAILURE\n");
+    }
+    else if (status == EXIT_SUCCESS) {
+        printf("Program exited with SUCCESS\n");
+    }
+    exit(status);
+}
+
+
+/**********************************************
+ * writeSerial
+ *  Writes data to the serial port
+ *
+ *  Arguments
+ *      ser - file descriptor of serial port
+ *      data - data to write
+ *      len - length of data to write
+ *
+ *  Returns
+ *      void
+ **********************************************/
+void writeSerial(int ser, unsigned char *data, int len) {
+    if (write(ser, data, len) < 0) {
+        ERR("Failed to write data to serial port\n");
+        cleanup(ser, EXIT_FAILURE);
+    }
+}
+
+
+/**********************************************
+ * readSerial
+ *  Reads from the serial port
+ *
+ *  Arguments
+ *      ser - file descriptor of serial port
+ *      len - length of data to read
+ *      data - location to store read data
+ *
+ *  Returns
+ *      void
+ **********************************************/
+void readSerial(int ser, int len, unsigned char *data) {
+    int bytesRead = 0;
+    int tempRead = 0;
+    while (bytesRead < len) {
+        tempRead = read(ser, data+bytesRead, len-bytesRead);
+        if (tempRead != -1) {
+            bytesRead += tempRead;
+        }
+        if (quit) {
+            cleanup(ser, EXIT_SUCCESS);
+        }
     }
 }
 
