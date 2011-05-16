@@ -1,7 +1,8 @@
 /* Defines */
-#define NUM_EFFECTS 2
-#define LPF         0
-#define BPF         1
+#define NUM_EFFECTS 3
+#define PASS_THRU   0
+#define LPF         1
+#define BPF         2
 //Return values for decodeData()
 #define M1          0
 #define M2          1

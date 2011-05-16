@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
     int decode = 0;
     start_pipeline(effect);
     printf("Program Started.\n");
-    printf("Starting Effect (0): lowpass\n");
+    printf("Starting Effect (0): Pass Thru\n");
     while (!quit) {
         sleep(1);
         /* Send data request */
