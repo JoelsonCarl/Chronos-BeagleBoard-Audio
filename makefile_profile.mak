@@ -27,8 +27,15 @@ AT := @
 # ---------------------------------------------------------------------
 CC_ROOT := /home/carlsojs/toolchains/usr/local/angstrom/arm
 CC      := $(CC_ROOT)/bin/arm-angstrom-linux-gnueabi-gcc
-CFLAGS  := -Wall -fno-strict-aliasing -march=armv7-a -D_REENTRANT -I$(CC_ROOT)/lib/gcc/arm-angstrom/linux-gnueabi/4.3.3/include
-LINKER_FLAGS := -lpthread
+CC_INCLUDE := $(CC_ROOT)/arm-angstrom-linux-gnueabi/usr/include
+CC_LIB	:= $(CC_ROOT)/arm-angstrom-linux-gnueabi/usr/lib
+CFLAGS  := -Wall -fno-strict-aliasing -march=armv7-a -D_REENTRANT \
+		   -I$(CC_INCLUDE)/gstreamer-0.10 \
+		   -I$(CC_INCLUDE)/glib-2.0 \
+		   -I$(CC_LIB)/glib-2.0/include \
+           -I$(CC_INCLUDE)/libxml2 \
+		   -I$(CC_ROOT)/lib/gcc/arm-angstrom/linux-gnueabi/4.3.3/include
+LINKER_FLAGS := -lpthread -lgstreamer-0.10 -lgobject-2.0 -lgmodule-2.0 -lxml2 -lgthread-2.0 -lrt -lglib-2.0
 DEBUG_CFLAGS := -g -D_DEBUG
 RELEASE_CFLAGS := -O2
 

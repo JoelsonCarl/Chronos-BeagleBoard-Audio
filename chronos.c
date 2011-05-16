@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 /* Local includes */
+#include "debug.h"
 #include "chronos.h"
 
 /*********************************************
@@ -88,7 +89,9 @@ int main(int argc, char *argv[]) {
     DBG("Serial port opened and configured\n");
 
     /* Start the AP */
+    DBG("About to write to serial start ap\n");
     writeSerial(ser, CMD_StartAP, sizeof(CMD_StartAP));
+    DBG("Wrote start AP\n");
     /* Verify the response is correct */
     readSerial(ser, sizeof(CMD_StartAPResp), data);
     if (!(data[0] == CMD_StartAPResp[0] &&
@@ -100,17 +103,14 @@ int main(int argc, char *argv[]) {
     DBG("Access Point started\n");
 
     /* Main program loop */
-    int sysRet = 0;
-    int playing = 0;
-    int mode = 0;
+    int playing = 1;
+    int effect = 0;
     int decode = 0;
-    unsigned char acc[] = {0x00, 0x00, 0x00}; // {X, Y, Z}
+    start_pipeline(effect);
     printf("Program Started.\n");
-    printf("Starting Mode (0): Normal Audio Thru\n");
+    printf("Starting Effect (0): lowpass\n");
     while (!quit) {
-        DBG("Sleep for...");
         sleep(1);
-        DBG(" 1 second\n");
         /* Send data request */
         writeSerial(ser, CMD_RequestData, sizeof(CMD_RequestData));
         /* Read response */
@@ -119,24 +119,14 @@ int main(int argc, char *argv[]) {
         decode = decodeData(data);
         if (decode == M1) {
             /* M1 (top left) button pressed */
-            mode += 1;
-            if (mode == NUM_MODES) {
-                mode = 0;
+            effect += 1;
+            if (effect == NUM_EFFECTS) {
+                effect = 0;
             }
             if (playing) {
-                sysRet = killAudio();
-                if (sysRet == -1) {
-                    ERR("Failed to stop audio while switching modes.\n\tmode = %d\n", mode);
-                    cleanup(ser, EXIT_FAILURE);
-                }
-                sysRet = playAudio(mode);
-                if (sysRet == -1) {
-                    ERR("Failed to start audio (mode switch)\n\tmode = %d\n", mode);
-                    cleanup(ser, EXIT_FAILURE);
-                }
-
+                restart_pipeline(effect);
             }
-            printf("Switched to mode %d.\n", mode);
+            printf("Switched to effect %d.\n", effect);
         }
         else if (decode == M2) {
             /* M2 (bottom left) button pressed */
@@ -145,20 +135,12 @@ int main(int argc, char *argv[]) {
         else if (decode == S1) {
             /* S1 (top right) button pressed */
             if (!playing) {
-                sysRet = playAudio(mode);
-                if (sysRet == -1) {
-                    ERR("Failed to Start Audio\n\tmode = %d\n", mode);
-                    cleanup(ser, EXIT_FAILURE);
-                }
-                printf("Audio Started\n");
+                start_pipeline(effect);
+                printf("Audio Started (Effect: %d)\n", effect);
                 playing = 1;
             }
             else {
-                sysRet = killAudio();
-                if (sysRet == -1) {
-                    ERR("Failed to Stop Audio\n\tmode = %d\n", mode);
-                    cleanup(ser, EXIT_FAILURE);
-                }
+                stop_pipeline();
                 printf("Audio Stopped\n");
                 playing = 0;
             }
@@ -170,9 +152,7 @@ int main(int argc, char *argv[]) {
         else if (decode == ACC_VALID) {
             /* Valid Accelerometer Data */
             DBG("Valid Accelerometer Data\n\tX = %x\n\tY = %x\n\tZ = %x\n", data[4], data[5], data[6]);
-            acc[0] = data[4];
-            acc[1] = data[5];
-            acc[2] = data[6];
+            configure_effect(effect, data);
         }
         else {
             /* Unknown */
@@ -239,6 +219,140 @@ int decodeData(unsigned char *data) {
     }
     else {
         return UNKNOWN;
+    }
+}
+
+
+/**********************************************
+ * configure_effect
+ *  Changes the current effect using the
+ *  accelerometer data
+ *
+ *  Arguments
+ *      effect - the current effect
+ *      data - the data from the access point
+ *
+ *  Returns
+ *      void
+ **********************************************/
+void configure_effect(int effect, unsigned char *data) {
+    if (effect == LPF) {
+        // Low-pass Filter
+        // X controls cutoff frequency
+        int x = data[4];
+        float cutoff = 1500;
+        if (x >= 0x80 && x <= 0xDA) {
+            cutoff = 0;
+        }
+        else if (x >= 0xDB && x <= 0xE4) {
+            cutoff = 350;
+        }
+        else if (x >= 0xE5 && x <= 0xEE) {
+            cutoff = 700;
+        }
+        else if (x >= 0xEF && x <= 0xF8) {
+            cutoff = 1050;
+        }
+        else if (x >= 0xF9 || x <= 0x02) {
+            cutoff = 1400;
+        }
+        else if (x >= 0x03 && x <= 0x0D) {
+            cutoff = 1750;
+        }
+        else if (x >= 0x0E && x <= 0x17) {
+            cutoff = 2100;
+        }
+        else if (x >= 0x18 && x <= 0x21) {
+            cutoff = 2450;
+        }
+        else if (x >= 0x22 && x <= 0x2B) {
+            cutoff = 2800;
+        }
+        else if (x >= 0x2C && x <= 0x7F) {
+            cutoff = 3150;
+        }        
+        else {
+            cutoff = 1500;
+        }
+        DBG("LPF Configure\n\tcutoff = %f\n", cutoff);
+        configure_LPF(cutoff);
+    }
+    else if (effect == BPF) {
+        // Band-pass Filter
+        // X controls center frequency
+        // Y controls bandwidth
+        int x = data[4];
+        int y = data[5];
+        float center = 1500;
+        float bandwidth = 500;
+        if (x >= 0x80 && x <= 0xDA) {
+            center = 0;
+        }
+        else if (x >= 0xDB && x <= 0xE4) {
+            center = 350;
+        }
+        else if (x >= 0xE5 && x <= 0xEE) {
+            center = 700;
+        }
+        else if (x >= 0xEF && x <= 0xF8) {
+            center = 1050;
+        }
+        else if (x >= 0xF9 || x <= 0x02) {
+            center = 1400;
+        }
+        else if (x >= 0x03 && x <= 0x0D) {
+            center = 1750;
+        }
+        else if (x >= 0x0E && x <= 0x17) {
+            center = 2100;
+        }
+        else if (x >= 0x18 && x <= 0x21) {
+            center = 2450;
+        }
+        else if (x >= 0x22 && x <= 0x2B) {
+            center = 2800;
+        }
+        else if (x >= 0x2C && x <= 0x7F) {
+            center = 3150;
+        }        
+        else {
+            center = 1500;
+        }
+        if (y >= 0x80 && y <= 0xDA) {
+            bandwidth = 100;
+        }
+        else if (y >= 0xDB && y <= 0xE4) {
+            bandwidth = 300;
+        }
+        else if (y >= 0xE5 && y <= 0xEE) {
+            bandwidth = 500;
+        }
+        else if (y >= 0xEF && y <= 0xF8) {
+            bandwidth= 700;
+        }
+        else if (y >= 0xF9 || y <= 0x02) {
+            bandwidth= 900;
+        }
+        else if (y >= 0x03 && y <= 0x0D) {
+            bandwidth= 1100;
+        }
+        else if (y >= 0x0E && y <= 0x17) {
+            bandwidth= 1300;
+        }
+        else if (y >= 0x18 && y <= 0x21) {
+            bandwidth= 1500;
+        }
+        else if (y >= 0x22 && y <= 0x2B) {
+            bandwidth= 1700;
+        }
+        else if (y >= 0x2C && y <= 0x7F) {
+            bandwidth= 1900;
+        }        
+        else {
+            bandwidth = 500;
+        }
+        DBG("BPF Configure\n\tcenter = %f\n\tbandwidth = %f\n", center, bandwidth);
+        configure_BPF(center, bandwidth);
     }
 }
 
@@ -319,52 +433,6 @@ void readSerial(int ser, int len, unsigned char *data) {
             cleanup(ser, EXIT_SUCCESS);
         }
     }
-}
-
-
-/**********************************************
- * playAudio
- *  Launches the GStreamer pipeline
- *
- *  Arguments
- *      mode - selects GStreamer pipeline mode
- *
- *  Returns
- *      the result of the 'system' call
- **********************************************/
-int playAudio(int mode) {
-    int systemRet = 0;
-    switch (mode) {
-    case 0:
-        systemRet = system("gst-launch alsasrc ! alsasink > /dev/null &");
-        break;
-    case 1:
-        systemRet = system("gst-launch alsasrc ! audioconvert ! audiocheblimit mode=low-pass cutoff=1000 ! audioconvert ! alsasink > /dev/null &");
-        break;
-    case 2:
-        systemRet = system("gst-launch alsasrc ! audioconvert ! audioecho delay=500000000 intensity=0.6 feedback=0.4 ! audioconvert ! alsasink > /dev/null &");
-        break;
-    default:
-        systemRet = system("gst-launch alsasrc ! alsasink > /dev/null &");
-        break;
-    }
-    return systemRet;
-}
-
-
-/**********************************************
- * killAudio
- *  Kills the GStreamer pipeline by sending it
- *  an interrupt signal
- *
- *  Arguments
- *      none
- *
- *  Returns
- *      the result of the 'system' call
- **********************************************/
-int killAudio(void) {
-    return system("kill -2 `ps -ef | grep gst-launch-0.10 | head -n 1 | awk '{print $2}'`");
 }
 
 
